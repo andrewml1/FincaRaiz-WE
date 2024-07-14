@@ -1,9 +1,11 @@
 import csv
 import concurrent.futures
+import json
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
 from collections import namedtuple
+from selenium.webdriver.common.by import By
 from links import obtener_enlaces_totales
 
 Oferta = namedtuple("Oferta", [
@@ -16,153 +18,77 @@ Oferta = namedtuple("Oferta", [
     "areaprivada",
     "estrato",
     "pison",
-    "administración",
+    "administracion",
     "coord",
-    "enlace",  
+    "barrio",
+    "antiguedad",
+    "enlace",
 ])
 
 lista_ofertas = []
 
-
-enlaces = obtener_enlaces_totales()
+enlaces = obtener_enlaces_totales(15)
 
 chrome_options = Options()
 chrome_options.add_argument("--headless")
 chrome_options.add_argument("--disable-notifications")
 chrome_options.add_argument("--disable-popup-blocking")
 
+
 def procesar_enlace(enlace):
     try:
-        
         with webdriver.Chrome(options=chrome_options) as driver:
             driver.get(enlace)
             html_content = driver.page_source
             soup = BeautifulSoup(html_content, "html.parser")
 
-            divs_con_clase = soup.find_all("div", class_="MuiBox-root jss331 jss329")
+            script_tag = soup.find("script", id="__NEXT_DATA__", type="application/json")
+            json_data = json.loads(script_tag.string)
 
-            nombre_elemento = None
-            oferta_actual = {}
+            property_data = json_data["props"]["pageProps"]["data"]
+            technical_sheet = property_data.get("technicalSheet", [])
 
-            for div in divs_con_clase:
-                elementos_p = div.select('p[class^="jss65 jss74"]')
+            # Extraer el nombre del barrio específico
+            barrios = property_data["locations"]["neighbourhood"]
+            barrio = barrios[2]["name"] if len(barrios) > 2 else None
 
-                for p in elementos_p:
-                    if nombre_elemento is None:
-                        nombre_elemento = p.get_text()
-                    else:
-                        valor_elemento = p.get_text()
-                        oferta_actual[nombre_elemento] = valor_elemento
-                        nombre_elemento = None
+            oferta_actual = {
+                "carac": next((item["value"] for item in technical_sheet if item["field"] == "property_type_name"),
+                              None),
+                "precio": property_data["price"]["amount"],
+                "hab": next((item["value"] for item in technical_sheet if item["field"] == "bedrooms"), None),
+                "baños": next((item["value"] for item in technical_sheet if item["field"] == "bathrooms"), None),
+                "parqueaderos": next((item["value"] for item in technical_sheet if item["field"] == "garage"), None),
+                "areaconstruida": next((item["value"] for item in technical_sheet if item["field"] == "m2Built"), None),
+                "areaprivada": next((item["value"] for item in technical_sheet if item["field"] == "m2Terrain"), None),
+                "estrato": next((item["value"] for item in technical_sheet if item["field"] == "stratum"), None),
+                "pison": next((item["value"] for item in technical_sheet if item["field"] == "floor"), None),
+                "administracion": next((item["value"] for item in technical_sheet if item["field"] == "commonExpenses"),
+                                       None),
+                "coord": property_data["locations"]["location_point"],
+                "barrio": barrio,
+                "antiguedad": next((item["value"] for item in technical_sheet if item["field"] == "constructionYear"),
+                                   None),
+                "enlace": enlace,
+            }
 
-            precio_p = soup.select('p[class^="jss65 jss70"]')
-            if precio_p:
-                precio = precio_p[1].get_text()
-            else:
-                precio = ""
-
-            coordenadas = driver.find_element("css selector", 'img[src*="snap_map"]')
-            coord = coordenadas.get_attribute('src')
-
-            elementos_p = soup.find_all("p")
-            hab = None  
-            for p in elementos_p:
-                if p.get_text() == "Habitaciones":
-                    siguiente_p = p.find_next("p")  
-                    if siguiente_p:
-                        hab = siguiente_p.get_text()
-                        break  
-            baños = None  
-            for p in elementos_p:
-                if p.get_text() == "Baños":
-                    siguiente_p = p.find_next("p")  
-                    if siguiente_p:
-                        baños = siguiente_p.get_text()
-                        break  
-            parqueaderos = None  
-            for p in elementos_p:
-                if p.get_text() == "Parqueaderos":
-                    siguiente_p = p.find_next("p")  
-                    if siguiente_p:
-                        parqueaderos = siguiente_p.get_text()
-                        break  
-            areaconstruida = None  
-            for p in elementos_p:
-                if p.get_text() == "Área construída":
-                    siguiente_p = p.find_next("p")  
-                    if siguiente_p:
-                        areaconstruida = siguiente_p.get_text()
-                        break  
-            areaprivada = None  
-            for p in elementos_p:
-                if p.get_text() == "Área privada":
-                    siguiente_p = p.find_next("p")  
-                    if siguiente_p:
-                        areaprivada = siguiente_p.get_text()
-                        break  
-            estrato = None  
-            for p in elementos_p:
-                if p.get_text() == "Estrato":
-                    siguiente_p = p.find_next("p")  
-                    if siguiente_p:
-                        estrato = siguiente_p.get_text()
-                        break  
-            pison = None  
-            for p in elementos_p:
-                if p.get_text() == "Piso N°":
-                    siguiente_p = p.find_next("p")  
-                    if siguiente_p:
-                        pison = siguiente_p.get_text()
-                        break  
-            administración = None  
-            for p in elementos_p:
-                if p.get_text() == "Administración":
-                    siguiente_p = p.find_next("p")  
-                    if siguiente_p:
-                        administración = siguiente_p.get_text()
-                        break     
-            carac = None  
-            for p in elementos_p:
-                if p.get_text() == "Descripción general":
-                    siguiente_p = p.find_next("p")  
-                    if siguiente_p:
-                        carac = siguiente_p.get_text()
-                        break    
-                 
-            precio_p = soup.select('p[class^="jss65 jss70"]')
-            if precio_p:
-                precio = precio_p[1].get_text()
-            else:
-                precio = ""
-
-            coordenadas = driver.find_element("css selector", 'img[src*="snap_map"]')
-            coord = coordenadas.get_attribute('src')
-            lista_ofertas.append(Oferta(
-                carac=carac,
-                precio=precio,
-                hab=hab,
-                baños=baños,
-                parqueaderos=parqueaderos,
-                areaconstruida=areaconstruida,
-                areaprivada=areaprivada,
-                estrato=estrato,
-                pison=pison,
-                administración=administración,
-                coord=coord,
-                enlace=enlace 
-            ))
-            oferta_actual = {}
+            lista_ofertas.append(Oferta(**oferta_actual))
 
     except Exception as e:
         print(f"Error en el enlace {enlace}: {str(e)}")
 
+
 with concurrent.futures.ThreadPoolExecutor() as executor:
     futures = [executor.submit(procesar_enlace, enlace) for enlace in enlaces]
 
+# Esperar a que todas las tareas se completen
+concurrent.futures.wait(futures)
+
+# Guardar los datos en un archivo CSV
 csv_filename = "ofertas.csv"
 with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
     csv_writer = csv.writer(csvfile)
-    csv_writer.writerow(Oferta._fields)  
+    csv_writer.writerow(Oferta._fields)
     csv_writer.writerows(lista_ofertas)
 
 print(f"Datos guardados en {csv_filename}")
